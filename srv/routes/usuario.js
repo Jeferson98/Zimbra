@@ -1,17 +1,20 @@
 const express = require('express');
 const router = express.Router();
-const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 const Connect = require('../Connection/SQLConnect');
 
-// 🔐 Función para hashear contraseña
-const hashPassword = (password) => {
-  return crypto.createHash('sha256').update(password).digest('hex');
+// 🔐 Hash de contraseña
+const hashPassword = async (password) => {
+  return await bcrypt.hash(password, 10);
 };
 
+// 📧 Validación básica de email
+const isValidEmail = (email) => /\S+@\S+\.\S+/.test(email);
 
-// http://localhost:3000/api/usuario
-// ✅ Crear usuario
-router.post('/user', async (req, res) => {
+// ==============================
+// ✅ CREAR USUARIO
+// ==============================
+router.post('/usuarios', async (req, res) => {
   try {
     const { nombre, email, password } = req.body;
 
@@ -22,26 +25,27 @@ router.post('/user', async (req, res) => {
       });
     }
 
-    const hashedPassword = hashPassword(password);
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email inválido'
+      });
+    }
+
+    const hashedPassword = await hashPassword(password);
 
     const sql = `
       INSERT INTO usuarios (nombre, email, password)
       VALUES (?, ?, ?)
     `;
 
-    const values = [
-      nombre,
-      email,
-      hashedPassword
-    ];
-
-    const result = await Connect(sql, values);
+    const result = await Connect(sql, [nombre, email, hashedPassword]);
 
     res.status(201).json({
       success: true,
       message: 'Usuario creado exitosamente',
       usuario: {
-        id: result.insertId || result[0]?.insertId || null,
+        id: result.insertId,
         nombre,
         email
       }
@@ -49,23 +53,33 @@ router.post('/user', async (req, res) => {
 
   } catch (error) {
     console.error('Error al crear usuario:', error);
+
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({
+        success: false,
+        error: 'El email ya está registrado'
+      });
+    }
+
     res.status(500).json({
       success: false,
-      error: 'Error al crear el usuario'
+      error: 'Error interno del servidor'
     });
   }
 });
 
 
-// ✅ Obtener usuarios
-router.get('/user', async (req, res) => {
+// ==============================
+// ✅ OBTENER USUARIOS
+// ==============================
+router.get('/usuarios', async (req, res) => {
   try {
     const sql = `
-      SELECT id, nombre, email, rol_id, estado
+      SELECT id, nombre, email
       FROM usuarios
     `;
 
-    const result = await Connect(sql, []);
+    const result = await Connect(sql);
 
     res.status(200).json({
       success: true,
@@ -74,6 +88,7 @@ router.get('/user', async (req, res) => {
 
   } catch (error) {
     console.error('Error al obtener usuarios:', error);
+
     res.status(500).json({
       success: false,
       error: 'Error al obtener usuarios'
@@ -82,26 +97,36 @@ router.get('/user', async (req, res) => {
 });
 
 
-// ✅ Obtener usuario por ID
-router.get('/:id', async (req, res) => {
+// ==============================
+// ✅ OBTENER USUARIO POR ID
+// ==============================
+router.get('/usuarios/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
     const sql = `
-      SELECT id, nombre, email, rol_id, estado
+      SELECT id, nombre, email
       FROM usuarios
       WHERE id = ?
     `;
 
     const result = await Connect(sql, [id]);
 
+    if (result.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Usuario no encontrado'
+      });
+    }
+
     res.status(200).json({
       success: true,
-      usuario: result[0] || null
+      usuario: result[0]
     });
 
   } catch (error) {
     console.error('Error al obtener usuario:', error);
+
     res.status(500).json({
       success: false,
       error: 'Error al obtener usuario'
@@ -110,30 +135,40 @@ router.get('/:id', async (req, res) => {
 });
 
 
-// ✅ Actualizar usuario
-router.put('/:id', async (req, res) => {
+// ==============================
+// ✅ ACTUALIZAR USUARIO
+// ==============================
+router.put('/usuarios/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, email, password, rol_id, estado } = req.body;
+    const { nombre, email, password } = req.body;
 
-    if (!id || !nombre || !email) {
+    if (!nombre || !email) {
       return res.status(400).json({
         success: false,
-        error: 'Faltan datos requeridos'
+        error: 'Nombre y email son obligatorios'
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email inválido'
       });
     }
 
     let sql = `
       UPDATE usuarios 
-      SET nombre = ?, email = ?, rol_id = ?, estado = ?
+      SET nombre = ?, email = ?
     `;
 
-    let values = [nombre, email, rol_id || null, estado ?? 1];
+    let values = [nombre, email];
 
-    // 🔐 Si envían contraseña → actualizarla
+    // 🔐 Si envían contraseña → actualizar
     if (password) {
+      const hashedPassword = await hashPassword(password);
       sql += `, password = ?`;
-      values.push(hashPassword(password));
+      values.push(hashedPassword);
     }
 
     sql += ` WHERE id = ?`;
@@ -143,11 +178,19 @@ router.put('/:id', async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Usuario actualizado exitosamente'
+      message: 'Usuario actualizado correctamente'
     });
 
   } catch (error) {
     console.error('Error al actualizar usuario:', error);
+
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({
+        success: false,
+        error: 'El email ya está en uso'
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: 'Error al actualizar usuario'
@@ -156,24 +199,25 @@ router.put('/:id', async (req, res) => {
 });
 
 
-// ✅ Eliminar (soft delete recomendado)
-router.delete('/:id', async (req, res) => {
+// ==============================
+// ✅ ELIMINAR USUARIO (REAL)
+// ==============================
+router.delete('/usuarios/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const sql = `
-      UPDATE usuarios SET estado = 0 WHERE id = ?
-    `;
+    const sql = `DELETE FROM usuarios WHERE id = ?`;
 
     await Connect(sql, [id]);
 
     res.status(200).json({
       success: true,
-      message: 'Usuario desactivado'
+      message: 'Usuario eliminado correctamente'
     });
 
   } catch (error) {
     console.error('Error al eliminar usuario:', error);
+
     res.status(500).json({
       success: false,
       error: 'Error al eliminar usuario'
