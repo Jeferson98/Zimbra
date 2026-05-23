@@ -1,11 +1,13 @@
-import './App.css'
-import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom'
-import Navbar from './components/Navbar'
-import { useState, useEffect } from 'react';
-import Login from './pages/Login/login';
-import Reports from './pages/Report/Reports';
+import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import './App.css';
+import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
+import Login from './pages/Login/login';
+import ModulePage from './pages/ModulePage';
+import Reports from './pages/Report/Reports';
+import './styles/zimbra.css';
 
 function App() {
   const [openMenu, setOpenMenu] = useState(false);
@@ -53,6 +55,25 @@ function App() {
               </ProtectedRoute>
             } 
           />
+
+          <Route
+            path="/products"
+            element={
+              <ProtectedRoute>
+                <Reports openMenu={openMenu} setOpenMenu={setOpenMenu} />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/module/:moduleKey"
+            element={
+              <ProtectedRoute>
+                <ModulePage />
+              </ProtectedRoute>
+            }
+          />
+          
         </Routes>
       </BrowserRouter>
 
