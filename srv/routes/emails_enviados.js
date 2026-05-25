@@ -1,26 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const Connect = require('../Connection/SQLConnect');
+const pool = require('../Connection/SQLConnect');
 
 // ==========================================
-// CREAR EMAIL ENVIADO
+// CREAR EMAIL ENVIADO + TRANSACCIÓN
 // POST http://localhost:3000/api/EmailsEnviadosMaestro/EmailEnviado
 // ==========================================
 router.post('/EmailEnviado', async (req, res) => {
+
+  let connection;
+
   try {
 
     const {
       lead_id,
-      campaña_id,
+      campana_id,
       asunto,
       contenido,
       abierto,
       clic
     } = req.body;
 
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
     if (
       !lead_id ||
-      !campaña_id ||
+      !campana_id ||
       !asunto ||
       !contenido
     ) {
@@ -30,39 +36,77 @@ router.post('/EmailEnviado', async (req, res) => {
       });
     }
 
-    const sql = `
+    // ==========================================
+    // OBTENER CONEXIÓN
+    // ==========================================
+    connection = await pool.getConnection();
+
+    // ==========================================
+    // INICIAR TRANSACCIÓN
+    // ==========================================
+    const sqlStartTransaction = `
+      START TRANSACTION
+    `;
+
+    await connection.query(sqlStartTransaction);
+
+    // ==========================================
+    // INSERT EMAIL ENVIADO
+    // ==========================================
+    const sqlEmail = `
       INSERT INTO emails_enviados
       (
         lead_id,
-        campaña_id,
+        campana_id,
         asunto,
         contenido,
         abierto,
-        clic
+        clic,
+        fecha_envio
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, NOW())
     `;
 
-    const values = [
+    const valuesEmail = [
       lead_id,
-      campaña_id,
+      campana_id,
       asunto,
       contenido,
       abierto ?? false,
       clic ?? false
     ];
 
-    const result = await Connect(sql, values);
+    const [emailResult] = await connection.query(
+      sqlEmail,
+      valuesEmail
+    );
 
-    console.log("Resultado INSERT:", result);
+    console.log("Resultado EMAIL ENVIADO:", emailResult);
 
+    // ==========================================
+    // OBTENER ID EMAIL
+    // ==========================================
+    const email_id = emailResult.insertId;
+
+    // ==========================================
+    // COMMIT
+    // ==========================================
+    const sqlCommit = `
+      COMMIT
+    `;
+
+    await connection.query(sqlCommit);
+
+    // ==========================================
+    // RESPUESTA EXITOSA
+    // ==========================================
     res.status(201).json({
       success: true,
-      message: 'Email enviado creado exitosamente',
+      message: 'Email enviado correctamente',
       email_enviado: {
-        id: result.insertId || result[0]?.insertId || null,
+        id: email_id,
         lead_id,
-        campaña_id,
+        campana_id,
         asunto,
         contenido,
         abierto: abierto ?? false,
@@ -72,14 +116,37 @@ router.post('/EmailEnviado', async (req, res) => {
 
   } catch (error) {
 
-    console.error("Error al crear email enviado:", error);
+    // ==========================================
+    // ROLLBACK
+    // ==========================================
+    if (connection) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
+    }
+
+    console.error("ERROR TRANSACCIÓN:", error);
 
     res.status(500).json({
       success: false,
       error: 'Error al crear email enviado'
     });
 
+  } finally {
+
+    // ==========================================
+    // LIBERAR CONEXIÓN
+    // ==========================================
+    if (connection) {
+      connection.release();
+    }
+
   }
+
 });
 
 // ==========================================
@@ -87,19 +154,23 @@ router.post('/EmailEnviado', async (req, res) => {
 // GET http://localhost:3000/api/EmailsEnviadosMaestro/EmailEnviado
 // ==========================================
 router.get('/EmailEnviado', async (req, res) => {
+
   try {
 
     const sql = `
-      SELECT 
+      SELECT
         ee.*,
         l.nombre AS lead_nombre,
-        c.nombre AS campaña_nombre
+        c.nombre AS campana_nombre
       FROM emails_enviados ee
-      INNER JOIN leads l ON ee.lead_id = l.id
-      INNER JOIN campañas c ON ee.campaña_id = c.id
+      INNER JOIN leads l
+        ON ee.lead_id = l.id
+      INNER JOIN campanas c
+        ON ee.campana_id = c.id
+      ORDER BY ee.fecha_envio DESC
     `;
 
-    const result = await Connect(sql, []);
+    const [result] = await pool.query(sql);
 
     res.status(200).json({
       success: true,
@@ -116,6 +187,7 @@ router.get('/EmailEnviado', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -123,22 +195,28 @@ router.get('/EmailEnviado', async (req, res) => {
 // GET http://localhost:3000/api/EmailsEnviadosMaestro/EmailEnviado/:id
 // ==========================================
 router.get('/EmailEnviado/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
     const sql = `
-      SELECT 
+      SELECT
         ee.*,
         l.nombre AS lead_nombre,
-        c.nombre AS campaña_nombre
+        c.nombre AS campana_nombre
       FROM emails_enviados ee
-      INNER JOIN leads l ON ee.lead_id = l.id
-      INNER JOIN campañas c ON ee.campaña_id = c.id
+      INNER JOIN leads l
+        ON ee.lead_id = l.id
+      INNER JOIN campanas c
+        ON ee.campana_id = c.id
       WHERE ee.id = ?
     `;
 
-    const result = await Connect(sql, [id]);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.length === 0) {
       return res.status(404).json({
@@ -162,6 +240,7 @@ router.get('/EmailEnviado/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -169,27 +248,28 @@ router.get('/EmailEnviado/:id', async (req, res) => {
 // PUT http://localhost:3000/api/EmailsEnviadosMaestro/EmailEnviado/:id
 // ==========================================
 router.put('/EmailEnviado/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
     const {
       lead_id,
-      campaña_id,
+      campana_id,
       asunto,
       contenido,
       abierto,
       clic
     } = req.body;
 
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
     if (
-      !id ||
       !lead_id ||
-      !campaña_id ||
+      !campana_id ||
       !asunto ||
-      !contenido ||
-      abierto === undefined ||
-      clic === undefined
+      !contenido
     ) {
       return res.status(400).json({
         success: false,
@@ -197,11 +277,14 @@ router.put('/EmailEnviado/:id', async (req, res) => {
       });
     }
 
+    // ==========================================
+    // UPDATE EMAIL ENVIADO
+    // ==========================================
     const sql = `
       UPDATE emails_enviados
       SET
         lead_id = ?,
-        campaña_id = ?,
+        campana_id = ?,
         asunto = ?,
         contenido = ?,
         abierto = ?,
@@ -211,17 +294,18 @@ router.put('/EmailEnviado/:id', async (req, res) => {
 
     const values = [
       lead_id,
-      campaña_id,
+      campana_id,
       asunto,
       contenido,
-      abierto,
-      clic,
+      abierto ?? false,
+      clic ?? false,
       id
     ];
 
-    const result = await Connect(sql, values);
-
-    console.log("Resultado UPDATE:", result);
+    const [result] = await pool.query(
+      sql,
+      values
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -236,11 +320,11 @@ router.put('/EmailEnviado/:id', async (req, res) => {
       email_enviado: {
         id,
         lead_id,
-        campaña_id,
+        campana_id,
         asunto,
         contenido,
-        abierto,
-        clic
+        abierto: abierto ?? false,
+        clic: clic ?? false
       }
     });
 
@@ -254,6 +338,7 @@ router.put('/EmailEnviado/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -261,15 +346,20 @@ router.put('/EmailEnviado/:id', async (req, res) => {
 // DELETE http://localhost:3000/api/EmailsEnviadosMaestro/EmailEnviado/:id
 // ==========================================
 router.delete('/EmailEnviado/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
-    const sql = `DELETE FROM emails_enviados WHERE id = ?`;
+    const sql = `
+      DELETE FROM emails_enviados
+      WHERE id = ?
+    `;
 
-    const result = await Connect(sql, [id]);
-
-    console.log("Resultado DELETE:", result);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -293,6 +383,7 @@ router.delete('/EmailEnviado/:id', async (req, res) => {
     });
 
   }
+
 });
 
 module.exports = router;

@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const Connect = require('../Connection/SQLConnect');
+const pool = require('../Connection/SQLConnect');
 
 // ==========================================
-// CREAR NOTIFICACIÓN
+// CREAR NOTIFICACIÓN + TRANSACCIÓN
 // POST http://localhost:3000/api/NotificacionesMaestro/Notificacion
 // ==========================================
 router.post('/Notificacion', async (req, res) => {
+
+  let connection;
+
   try {
 
     const {
@@ -15,6 +18,9 @@ router.post('/Notificacion', async (req, res) => {
       atendido
     } = req.body;
 
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
     if (
       !lead_id ||
       !mensaje
@@ -25,31 +31,69 @@ router.post('/Notificacion', async (req, res) => {
       });
     }
 
-    const sql = `
+    // ==========================================
+    // OBTENER CONEXIÓN
+    // ==========================================
+    connection = await pool.getConnection();
+
+    // ==========================================
+    // INICIAR TRANSACCIÓN
+    // ==========================================
+    const sqlStartTransaction = `
+      START TRANSACTION
+    `;
+
+    await connection.query(sqlStartTransaction);
+
+    // ==========================================
+    // INSERT NOTIFICACIÓN
+    // ==========================================
+    const sqlNotificacion = `
       INSERT INTO notificaciones
       (
         lead_id,
         mensaje,
-        atendido
+        atendido,
+        fecha
       )
-      VALUES (?, ?, ?)
+      VALUES (?, ?, ?, NOW())
     `;
 
-    const values = [
+    const valuesNotificacion = [
       lead_id,
       mensaje,
       atendido ?? false
     ];
 
-    const result = await Connect(sql, values);
+    const [notificacionResult] = await connection.query(
+      sqlNotificacion,
+      valuesNotificacion
+    );
 
-    console.log("Resultado INSERT:", result);
+    console.log("Resultado NOTIFICACIÓN:", notificacionResult);
 
+    // ==========================================
+    // OBTENER ID NOTIFICACIÓN
+    // ==========================================
+    const notificacion_id = notificacionResult.insertId;
+
+    // ==========================================
+    // COMMIT
+    // ==========================================
+    const sqlCommit = `
+      COMMIT
+    `;
+
+    await connection.query(sqlCommit);
+
+    // ==========================================
+    // RESPUESTA EXITOSA
+    // ==========================================
     res.status(201).json({
       success: true,
-      message: 'Notificación creada exitosamente',
+      message: 'Notificación creada correctamente',
       notificacion: {
-        id: result.insertId || result[0]?.insertId || null,
+        id: notificacion_id,
         lead_id,
         mensaje,
         atendido: atendido ?? false
@@ -58,14 +102,37 @@ router.post('/Notificacion', async (req, res) => {
 
   } catch (error) {
 
-    console.error("Error al crear notificación:", error);
+    // ==========================================
+    // ROLLBACK
+    // ==========================================
+    if (connection) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
+    }
+
+    console.error("ERROR TRANSACCIÓN:", error);
 
     res.status(500).json({
       success: false,
       error: 'Error al crear notificación'
     });
 
+  } finally {
+
+    // ==========================================
+    // LIBERAR CONEXIÓN
+    // ==========================================
+    if (connection) {
+      connection.release();
+    }
+
   }
+
 });
 
 // ==========================================
@@ -73,6 +140,7 @@ router.post('/Notificacion', async (req, res) => {
 // GET http://localhost:3000/api/NotificacionesMaestro/Notificacion
 // ==========================================
 router.get('/Notificacion', async (req, res) => {
+
   try {
 
     const sql = `
@@ -82,9 +150,10 @@ router.get('/Notificacion', async (req, res) => {
       FROM notificaciones n
       INNER JOIN leads l
         ON n.lead_id = l.id
+      ORDER BY n.fecha DESC
     `;
 
-    const result = await Connect(sql, []);
+    const [result] = await pool.query(sql);
 
     res.status(200).json({
       success: true,
@@ -101,6 +170,7 @@ router.get('/Notificacion', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -108,6 +178,7 @@ router.get('/Notificacion', async (req, res) => {
 // GET http://localhost:3000/api/NotificacionesMaestro/Notificacion/:id
 // ==========================================
 router.get('/Notificacion/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
@@ -122,7 +193,10 @@ router.get('/Notificacion/:id', async (req, res) => {
       WHERE n.id = ?
     `;
 
-    const result = await Connect(sql, [id]);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.length === 0) {
       return res.status(404).json({
@@ -146,6 +220,7 @@ router.get('/Notificacion/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -153,6 +228,7 @@ router.get('/Notificacion/:id', async (req, res) => {
 // PUT http://localhost:3000/api/NotificacionesMaestro/Notificacion/:id
 // ==========================================
 router.put('/Notificacion/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
@@ -163,11 +239,12 @@ router.put('/Notificacion/:id', async (req, res) => {
       atendido
     } = req.body;
 
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
     if (
-      !id ||
       !lead_id ||
-      !mensaje ||
-      atendido === undefined
+      !mensaje
     ) {
       return res.status(400).json({
         success: false,
@@ -175,6 +252,9 @@ router.put('/Notificacion/:id', async (req, res) => {
       });
     }
 
+    // ==========================================
+    // UPDATE NOTIFICACIÓN
+    // ==========================================
     const sql = `
       UPDATE notificaciones
       SET
@@ -187,13 +267,14 @@ router.put('/Notificacion/:id', async (req, res) => {
     const values = [
       lead_id,
       mensaje,
-      atendido,
+      atendido ?? false,
       id
     ];
 
-    const result = await Connect(sql, values);
-
-    console.log("Resultado UPDATE:", result);
+    const [result] = await pool.query(
+      sql,
+      values
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -209,7 +290,7 @@ router.put('/Notificacion/:id', async (req, res) => {
         id,
         lead_id,
         mensaje,
-        atendido
+        atendido: atendido ?? false
       }
     });
 
@@ -223,6 +304,7 @@ router.put('/Notificacion/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -230,15 +312,20 @@ router.put('/Notificacion/:id', async (req, res) => {
 // DELETE http://localhost:3000/api/NotificacionesMaestro/Notificacion/:id
 // ==========================================
 router.delete('/Notificacion/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
-    const sql = `DELETE FROM notificaciones WHERE id = ?`;
+    const sql = `
+      DELETE FROM notificaciones
+      WHERE id = ?
+    `;
 
-    const result = await Connect(sql, [id]);
-
-    console.log("Resultado DELETE:", result);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -262,6 +349,7 @@ router.delete('/Notificacion/:id', async (req, res) => {
     });
 
   }
+
 });
 
 module.exports = router;

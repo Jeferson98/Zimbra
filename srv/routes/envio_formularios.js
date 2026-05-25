@@ -1,20 +1,27 @@
 const express = require('express');
 const router = express.Router();
-const Connect = require('../Connection/SQLConnect');
+const pool = require('../Connection/SQLConnect');
 
 // ==========================================
-// CREAR ENVÍO FORMULARIO
+// CREAR ENVÍO FORMULARIO + TRANSACCIÓN
 // POST http://localhost:3000/api/EnvioFormulariosMaestro/EnvioFormulario
 // ==========================================
 router.post('/EnvioFormulario', async (req, res) => {
+
+  let connection;
+
   try {
 
     const {
       formulario_id,
       lead_id,
+      visitante_id,
       datos
     } = req.body;
 
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
     if (
       !formulario_id ||
       !datos
@@ -25,47 +32,111 @@ router.post('/EnvioFormulario', async (req, res) => {
       });
     }
 
-    const sql = `
+    // ==========================================
+    // OBTENER CONEXIÓN
+    // ==========================================
+    connection = await pool.getConnection();
+
+    // ==========================================
+    // INICIAR TRANSACCIÓN
+    // ==========================================
+    const sqlStartTransaction = `
+      START TRANSACTION
+    `;
+
+    await connection.query(sqlStartTransaction);
+
+    // ==========================================
+    // INSERT ENVÍO FORMULARIO
+    // ==========================================
+    const sqlEnvioFormulario = `
       INSERT INTO envio_formularios
       (
         formulario_id,
         lead_id,
-        datos
+        visitante_id,
+        datos,
+        fecha_envio
       )
-      VALUES (?, ?, ?)
+      VALUES (?, ?, ?, ?, NOW())
     `;
 
-    const values = [
+    const valuesEnvioFormulario = [
       formulario_id,
       lead_id || null,
+      visitante_id || null,
       JSON.stringify(datos)
     ];
 
-    const result = await Connect(sql, values);
+    const [envioResult] = await connection.query(
+      sqlEnvioFormulario,
+      valuesEnvioFormulario
+    );
 
-    console.log("Resultado INSERT:", result);
+    console.log("Resultado ENVÍO FORMULARIO:", envioResult);
 
+    // ==========================================
+    // OBTENER ID ENVÍO
+    // ==========================================
+    const envio_formulario_id = envioResult.insertId;
+
+    // ==========================================
+    // COMMIT
+    // ==========================================
+    const sqlCommit = `
+      COMMIT
+    `;
+
+    await connection.query(sqlCommit);
+
+    // ==========================================
+    // RESPUESTA EXITOSA
+    // ==========================================
     res.status(201).json({
       success: true,
-      message: 'Envío formulario creado exitosamente',
+      message: 'Formulario enviado correctamente',
       envio_formulario: {
-        id: result.insertId || result[0]?.insertId || null,
+        id: envio_formulario_id,
         formulario_id,
-        lead_id: lead_id || null,
+        lead_id,
+        visitante_id,
         datos
       }
     });
 
   } catch (error) {
 
-    console.error("Error al crear envío formulario:", error);
+    // ==========================================
+    // ROLLBACK
+    // ==========================================
+    if (connection) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
+    }
+
+    console.error("ERROR TRANSACCIÓN:", error);
 
     res.status(500).json({
       success: false,
-      error: 'Error al crear envío formulario'
+      error: 'Error al registrar envío de formulario'
     });
 
+  } finally {
+
+    // ==========================================
+    // LIBERAR CONEXIÓN
+    // ==========================================
+    if (connection) {
+      connection.release();
+    }
+
   }
+
 });
 
 // ==========================================
@@ -73,6 +144,7 @@ router.post('/EnvioFormulario', async (req, res) => {
 // GET http://localhost:3000/api/EnvioFormulariosMaestro/EnvioFormulario
 // ==========================================
 router.get('/EnvioFormulario', async (req, res) => {
+
   try {
 
     const sql = `
@@ -85,25 +157,27 @@ router.get('/EnvioFormulario', async (req, res) => {
         ON ef.formulario_id = f.id
       LEFT JOIN leads l
         ON ef.lead_id = l.id
+      ORDER BY ef.fecha_envio DESC
     `;
 
-    const result = await Connect(sql, []);
+    const [result] = await pool.query(sql);
 
     res.status(200).json({
       success: true,
-      envio_formularios: result
+      envios_formularios: result
     });
 
   } catch (error) {
 
-    console.error("Error al obtener envío formularios:", error);
+    console.error("Error al obtener envíos formularios:", error);
 
     res.status(500).json({
       success: false,
-      error: 'Error al obtener envío formularios'
+      error: 'Error al obtener envíos formularios'
     });
 
   }
+
 });
 
 // ==========================================
@@ -111,6 +185,7 @@ router.get('/EnvioFormulario', async (req, res) => {
 // GET http://localhost:3000/api/EnvioFormulariosMaestro/EnvioFormulario/:id
 // ==========================================
 router.get('/EnvioFormulario/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
@@ -128,7 +203,10 @@ router.get('/EnvioFormulario/:id', async (req, res) => {
       WHERE ef.id = ?
     `;
 
-    const result = await Connect(sql, [id]);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.length === 0) {
       return res.status(404).json({
@@ -152,6 +230,7 @@ router.get('/EnvioFormulario/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -159,6 +238,7 @@ router.get('/EnvioFormulario/:id', async (req, res) => {
 // PUT http://localhost:3000/api/EnvioFormulariosMaestro/EnvioFormulario/:id
 // ==========================================
 router.put('/EnvioFormulario/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
@@ -166,11 +246,14 @@ router.put('/EnvioFormulario/:id', async (req, res) => {
     const {
       formulario_id,
       lead_id,
+      visitante_id,
       datos
     } = req.body;
 
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
     if (
-      !id ||
       !formulario_id ||
       !datos
     ) {
@@ -180,11 +263,15 @@ router.put('/EnvioFormulario/:id', async (req, res) => {
       });
     }
 
+    // ==========================================
+    // UPDATE ENVÍO FORMULARIO
+    // ==========================================
     const sql = `
       UPDATE envio_formularios
       SET
         formulario_id = ?,
         lead_id = ?,
+        visitante_id = ?,
         datos = ?
       WHERE id = ?
     `;
@@ -192,13 +279,15 @@ router.put('/EnvioFormulario/:id', async (req, res) => {
     const values = [
       formulario_id,
       lead_id || null,
+      visitante_id || null,
       JSON.stringify(datos),
       id
     ];
 
-    const result = await Connect(sql, values);
-
-    console.log("Resultado UPDATE:", result);
+    const [result] = await pool.query(
+      sql,
+      values
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -213,7 +302,8 @@ router.put('/EnvioFormulario/:id', async (req, res) => {
       envio_formulario: {
         id,
         formulario_id,
-        lead_id: lead_id || null,
+        lead_id,
+        visitante_id,
         datos
       }
     });
@@ -228,6 +318,7 @@ router.put('/EnvioFormulario/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -235,15 +326,20 @@ router.put('/EnvioFormulario/:id', async (req, res) => {
 // DELETE http://localhost:3000/api/EnvioFormulariosMaestro/EnvioFormulario/:id
 // ==========================================
 router.delete('/EnvioFormulario/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
-    const sql = `DELETE FROM envio_formularios WHERE id = ?`;
+    const sql = `
+      DELETE FROM envio_formularios
+      WHERE id = ?
+    `;
 
-    const result = await Connect(sql, [id]);
-
-    console.log("Resultado DELETE:", result);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -267,6 +363,7 @@ router.delete('/EnvioFormulario/:id', async (req, res) => {
     });
 
   }
+
 });
 
 module.exports = router;

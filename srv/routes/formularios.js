@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const Connect = require('../Connection/SQLConnect');
+const pool = require('../Connection/SQLConnect');
 
 // ==========================================
-// CREAR FORMULARIO
+// CREAR FORMULARIO + TRANSACCIÓN
 // POST http://localhost:3000/api/FormulariosMaestro/Formulario
 // ==========================================
 router.post('/Formulario', async (req, res) => {
+
+  let connection;
+
   try {
 
     const {
@@ -14,39 +17,77 @@ router.post('/Formulario', async (req, res) => {
       descripcion
     } = req.body;
 
-    if (
-      !nombre ||
-      !descripcion
-    ) {
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
+    if (!nombre) {
       return res.status(400).json({
         success: false,
-        error: 'Faltan datos requeridos'
+        error: 'El nombre del formulario es requerido'
       });
     }
 
-    const sql = `
+    // ==========================================
+    // OBTENER CONEXIÓN
+    // ==========================================
+    connection = await pool.getConnection();
+
+    // ==========================================
+    // INICIAR TRANSACCIÓN
+    // ==========================================
+    const sqlStartTransaction = `
+      START TRANSACTION
+    `;
+
+    await connection.query(sqlStartTransaction);
+
+    // ==========================================
+    // INSERT FORMULARIO
+    // ==========================================
+    const sqlFormulario = `
       INSERT INTO formularios
       (
         nombre,
-        descripcion
+        descripcion,
+        fecha_creacion
       )
-      VALUES (?, ?)
+      VALUES (?, ?, NOW())
     `;
 
-    const values = [
+    const valuesFormulario = [
       nombre,
-      descripcion
+      descripcion || null
     ];
 
-    const result = await Connect(sql, values);
+    const [formularioResult] = await connection.query(
+      sqlFormulario,
+      valuesFormulario
+    );
 
-    console.log("Resultado INSERT:", result);
+    console.log("Resultado FORMULARIO:", formularioResult);
 
+    // ==========================================
+    // OBTENER ID FORMULARIO
+    // ==========================================
+    const formulario_id = formularioResult.insertId;
+
+    // ==========================================
+    // COMMIT
+    // ==========================================
+    const sqlCommit = `
+      COMMIT
+    `;
+
+    await connection.query(sqlCommit);
+
+    // ==========================================
+    // RESPUESTA EXITOSA
+    // ==========================================
     res.status(201).json({
       success: true,
-      message: 'Formulario creado exitosamente',
+      message: 'Formulario creado correctamente',
       formulario: {
-        id: result.insertId || result[0]?.insertId || null,
+        id: formulario_id,
         nombre,
         descripcion
       }
@@ -54,14 +95,37 @@ router.post('/Formulario', async (req, res) => {
 
   } catch (error) {
 
-    console.error("Error al crear formulario:", error);
+    // ==========================================
+    // ROLLBACK
+    // ==========================================
+    if (connection) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
+    }
+
+    console.error("ERROR TRANSACCIÓN:", error);
 
     res.status(500).json({
       success: false,
       error: 'Error al crear formulario'
     });
 
+  } finally {
+
+    // ==========================================
+    // LIBERAR CONEXIÓN
+    // ==========================================
+    if (connection) {
+      connection.release();
+    }
+
   }
+
 });
 
 // ==========================================
@@ -69,11 +133,16 @@ router.post('/Formulario', async (req, res) => {
 // GET http://localhost:3000/api/FormulariosMaestro/Formulario
 // ==========================================
 router.get('/Formulario', async (req, res) => {
+
   try {
 
-    const sql = `SELECT * FROM formularios`;
+    const sql = `
+      SELECT *
+      FROM formularios
+      ORDER BY fecha_creacion DESC
+    `;
 
-    const result = await Connect(sql, []);
+    const [result] = await pool.query(sql);
 
     res.status(200).json({
       success: true,
@@ -90,6 +159,7 @@ router.get('/Formulario', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -97,13 +167,21 @@ router.get('/Formulario', async (req, res) => {
 // GET http://localhost:3000/api/FormulariosMaestro/Formulario/:id
 // ==========================================
 router.get('/Formulario/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
-    const sql = `SELECT * FROM formularios WHERE id = ?`;
+    const sql = `
+      SELECT *
+      FROM formularios
+      WHERE id = ?
+    `;
 
-    const result = await Connect(sql, [id]);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.length === 0) {
       return res.status(404).json({
@@ -127,6 +205,7 @@ router.get('/Formulario/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -134,6 +213,7 @@ router.get('/Formulario/:id', async (req, res) => {
 // PUT http://localhost:3000/api/FormulariosMaestro/Formulario/:id
 // ==========================================
 router.put('/Formulario/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
@@ -143,17 +223,19 @@ router.put('/Formulario/:id', async (req, res) => {
       descripcion
     } = req.body;
 
-    if (
-      !id ||
-      !nombre ||
-      !descripcion
-    ) {
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
+    if (!nombre) {
       return res.status(400).json({
         success: false,
-        error: 'Faltan datos requeridos'
+        error: 'El nombre del formulario es requerido'
       });
     }
 
+    // ==========================================
+    // UPDATE FORMULARIO
+    // ==========================================
     const sql = `
       UPDATE formularios
       SET
@@ -164,13 +246,14 @@ router.put('/Formulario/:id', async (req, res) => {
 
     const values = [
       nombre,
-      descripcion,
+      descripcion || null,
       id
     ];
 
-    const result = await Connect(sql, values);
-
-    console.log("Resultado UPDATE:", result);
+    const [result] = await pool.query(
+      sql,
+      values
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -199,6 +282,7 @@ router.put('/Formulario/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -206,15 +290,20 @@ router.put('/Formulario/:id', async (req, res) => {
 // DELETE http://localhost:3000/api/FormulariosMaestro/Formulario/:id
 // ==========================================
 router.delete('/Formulario/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
 
-    const sql = `DELETE FROM formularios WHERE id = ?`;
+    const sql = `
+      DELETE FROM formularios
+      WHERE id = ?
+    `;
 
-    const result = await Connect(sql, [id]);
-
-    console.log("Resultado DELETE:", result);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -238,6 +327,7 @@ router.delete('/Formulario/:id', async (req, res) => {
     });
 
   }
+
 });
 
 module.exports = router;

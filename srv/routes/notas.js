@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const Connect = require('../Connection/SQLConnect');
+const pool = require('../Connection/SQLConnect');
 
 // ==========================================
-// CREAR NOTA
+// CREAR NOTA + TRANSACCIÓN
 // POST http://localhost:3000/api/NotasMaestro/Nota
 // ==========================================
 router.post('/Nota', async (req, res) => {
+
+  let connection;
+
   try {
 
     const {
@@ -15,6 +18,9 @@ router.post('/Nota', async (req, res) => {
       contenido
     } = req.body;
 
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
     if (
       !lead_id ||
       !usuario_id ||
@@ -26,31 +32,69 @@ router.post('/Nota', async (req, res) => {
       });
     }
 
-    const sql = `
+    // ==========================================
+    // OBTENER CONEXIÓN
+    // ==========================================
+    connection = await pool.getConnection();
+
+    // ==========================================
+    // INICIAR TRANSACCIÓN
+    // ==========================================
+    const sqlStartTransaction = `
+      START TRANSACTION
+    `;
+
+    await connection.query(sqlStartTransaction);
+
+    // ==========================================
+    // INSERT NOTA
+    // ==========================================
+    const sqlNota = `
       INSERT INTO notas
       (
         lead_id,
         usuario_id,
-        contenido
+        contenido,
+        fecha
       )
-      VALUES (?, ?, ?)
+      VALUES (?, ?, ?, NOW())
     `;
 
-    const values = [
+    const valuesNota = [
       lead_id,
       usuario_id,
       contenido
     ];
 
-    const result = await Connect(sql, values);
+    const [notaResult] = await connection.query(
+      sqlNota,
+      valuesNota
+    );
 
-    console.log("Resultado INSERT:", result);
+    console.log("Resultado NOTA:", notaResult);
 
+    // ==========================================
+    // OBTENER ID NOTA
+    // ==========================================
+    const nota_id = notaResult.insertId;
+
+    // ==========================================
+    // COMMIT
+    // ==========================================
+    const sqlCommit = `
+      COMMIT
+    `;
+
+    await connection.query(sqlCommit);
+
+    // ==========================================
+    // RESPUESTA EXITOSA
+    // ==========================================
     res.status(201).json({
       success: true,
-      message: 'Nota creada exitosamente',
+      message: 'Nota registrada correctamente',
       nota: {
-        id: result.insertId || result[0]?.insertId || null,
+        id: nota_id,
         lead_id,
         usuario_id,
         contenido
@@ -59,14 +103,37 @@ router.post('/Nota', async (req, res) => {
 
   } catch (error) {
 
-    console.error("Error al crear nota:", error);
+    // ==========================================
+    // ROLLBACK
+    // ==========================================
+    if (connection) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
+    }
+
+    console.error("ERROR TRANSACCIÓN:", error);
 
     res.status(500).json({
       success: false,
-      error: 'Error al crear nota'
+      error: 'Error al registrar nota'
     });
 
+  } finally {
+
+    // ==========================================
+    // LIBERAR CONEXIÓN
+    // ==========================================
+    if (connection) {
+      connection.release();
+    }
+
   }
+
 });
 
 // ==========================================
@@ -74,6 +141,7 @@ router.post('/Nota', async (req, res) => {
 // GET http://localhost:3000/api/NotasMaestro/Nota
 // ==========================================
 router.get('/Nota', async (req, res) => {
+
   try {
 
     const sql = `
@@ -86,9 +154,10 @@ router.get('/Nota', async (req, res) => {
         ON n.lead_id = l.id
       INNER JOIN usuarios u
         ON n.usuario_id = u.id
+      ORDER BY n.fecha DESC
     `;
 
-    const result = await Connect(sql, []);
+    const [result] = await pool.query(sql);
 
     res.status(200).json({
       success: true,
@@ -105,6 +174,7 @@ router.get('/Nota', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
@@ -112,6 +182,7 @@ router.get('/Nota', async (req, res) => {
 // GET http://localhost:3000/api/NotasMaestro/Nota/:id
 // ==========================================
 router.get('/Nota/:id', async (req, res) => {
+
   try {
 
     const { id } = req.params;
@@ -129,7 +200,10 @@ router.get('/Nota/:id', async (req, res) => {
       WHERE n.id = ?
     `;
 
-    const result = await Connect(sql, [id]);
+    const [result] = await pool.query(
+      sql,
+      [id]
+    );
 
     if (result.length === 0) {
       return res.status(404).json({
@@ -153,122 +227,251 @@ router.get('/Nota/:id', async (req, res) => {
     });
 
   }
+
 });
 
 // ==========================================
-// ACTUALIZAR NOTA
+// ACTUALIZAR NOTA + TRANSACCIÓN
 // PUT http://localhost:3000/api/NotasMaestro/Nota/:id
 // ==========================================
 router.put('/Nota/:id', async (req, res) => {
+
+  let connection;
+
   try {
 
     const { id } = req.params;
 
     const {
-      lead_id,
-      usuario_id,
       contenido
     } = req.body;
 
-    if (
-      !id ||
-      !lead_id ||
-      !usuario_id ||
-      !contenido
-    ) {
+    // ==========================================
+    // VALIDACIONES
+    // ==========================================
+    if (!contenido) {
       return res.status(400).json({
         success: false,
-        error: 'Faltan datos requeridos'
+        error: 'El contenido es requerido'
       });
     }
 
-    const sql = `
+    // ==========================================
+    // OBTENER CONEXIÓN
+    // ==========================================
+    connection = await pool.getConnection();
+
+    // ==========================================
+    // INICIAR TRANSACCIÓN
+    // ==========================================
+    const sqlStartTransaction = `
+      START TRANSACTION
+    `;
+
+    await connection.query(sqlStartTransaction);
+
+    // ==========================================
+    // UPDATE NOTA
+    // ==========================================
+    const sqlUpdateNota = `
       UPDATE notas
-      SET
-        lead_id = ?,
-        usuario_id = ?,
-        contenido = ?
+      SET contenido = ?
       WHERE id = ?
     `;
 
-    const values = [
-      lead_id,
-      usuario_id,
-      contenido,
-      id
-    ];
+    const [result] = await connection.query(
+      sqlUpdateNota,
+      [
+        contenido,
+        id
+      ]
+    );
 
-    const result = await Connect(sql, values);
-
-    console.log("Resultado UPDATE:", result);
-
+    // ==========================================
+    // VALIDAR EXISTENCIA
+    // ==========================================
     if (result.affectedRows === 0) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
       return res.status(404).json({
         success: false,
         error: 'Nota no encontrada'
       });
+
     }
 
+    console.log("Resultado UPDATE NOTA:", result);
+
+    // ==========================================
+    // COMMIT
+    // ==========================================
+    const sqlCommit = `
+      COMMIT
+    `;
+
+    await connection.query(sqlCommit);
+
+    // ==========================================
+    // RESPUESTA EXITOSA
+    // ==========================================
     res.status(200).json({
       success: true,
-      message: 'Nota actualizada exitosamente',
+      message: 'Nota actualizada correctamente',
       nota: {
         id,
-        lead_id,
-        usuario_id,
         contenido
       }
     });
 
   } catch (error) {
 
-    console.error("Error al actualizar nota:", error);
+    // ==========================================
+    // ROLLBACK
+    // ==========================================
+    if (connection) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
+    }
+
+    console.error("ERROR TRANSACCIÓN:", error);
 
     res.status(500).json({
       success: false,
       error: 'Error al actualizar nota'
     });
 
+  } finally {
+
+    // ==========================================
+    // LIBERAR CONEXIÓN
+    // ==========================================
+    if (connection) {
+      connection.release();
+    }
+
   }
+
 });
 
 // ==========================================
-// ELIMINAR NOTA
+// ELIMINAR NOTA + TRANSACCIÓN
 // DELETE http://localhost:3000/api/NotasMaestro/Nota/:id
 // ==========================================
 router.delete('/Nota/:id', async (req, res) => {
+
+  let connection;
+
   try {
 
     const { id } = req.params;
 
-    const sql = `DELETE FROM notas WHERE id = ?`;
+    // ==========================================
+    // OBTENER CONEXIÓN
+    // ==========================================
+    connection = await pool.getConnection();
 
-    const result = await Connect(sql, [id]);
+    // ==========================================
+    // INICIAR TRANSACCIÓN
+    // ==========================================
+    const sqlStartTransaction = `
+      START TRANSACTION
+    `;
 
-    console.log("Resultado DELETE:", result);
+    await connection.query(sqlStartTransaction);
 
+    // ==========================================
+    // DELETE NOTA
+    // ==========================================
+    const sqlDeleteNota = `
+      DELETE FROM notas
+      WHERE id = ?
+    `;
+
+    const [result] = await connection.query(
+      sqlDeleteNota,
+      [id]
+    );
+
+    // ==========================================
+    // VALIDAR EXISTENCIA
+    // ==========================================
     if (result.affectedRows === 0) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
       return res.status(404).json({
         success: false,
         error: 'Nota no encontrada'
       });
+
     }
 
+    console.log("Resultado DELETE NOTA:", result);
+
+    // ==========================================
+    // COMMIT
+    // ==========================================
+    const sqlCommit = `
+      COMMIT
+    `;
+
+    await connection.query(sqlCommit);
+
+    // ==========================================
+    // RESPUESTA EXITOSA
+    // ==========================================
     res.status(200).json({
       success: true,
-      message: 'Nota eliminada exitosamente'
+      message: 'Nota eliminada correctamente'
     });
 
   } catch (error) {
 
-    console.error("Error al eliminar nota:", error);
+    // ==========================================
+    // ROLLBACK
+    // ==========================================
+    if (connection) {
+
+      const sqlRollback = `
+        ROLLBACK
+      `;
+
+      await connection.query(sqlRollback);
+
+    }
+
+    console.error("ERROR TRANSACCIÓN:", error);
 
     res.status(500).json({
       success: false,
       error: 'Error al eliminar nota'
     });
 
+  } finally {
+
+    // ==========================================
+    // LIBERAR CONEXIÓN
+    // ==========================================
+    if (connection) {
+      connection.release();
+    }
+
   }
+
 });
 
 module.exports = router;
