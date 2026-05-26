@@ -10,7 +10,7 @@ type loginResponse = {
 
 function Login({ isAuthenticated, setIsAuthenticated }: loginResponse) {
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -21,7 +21,7 @@ function Login({ isAuthenticated, setIsAuthenticated }: loginResponse) {
     setLoading(true);
 
     try {
-      const response = await login(username, password);
+      const response = await login(email, password);
 
       // Guardar token en localStorage
       localStorage.setItem("token", response.token);
@@ -77,8 +77,8 @@ function Login({ isAuthenticated, setIsAuthenticated }: loginResponse) {
               className="login-input"
               type="text"
               placeholder="tu_usuario"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
           </div>
         </div>

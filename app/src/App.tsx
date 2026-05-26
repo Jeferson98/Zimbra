@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Toaster } from 'react-hot-toast';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import './App.css';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -19,6 +19,38 @@ function App() {
       setIsAuthenticated(true);
     }
   }, []);
+
+  function Layout({
+  children,
+  openMenu,
+  setOpenMenu,
+  isAuthenticated,
+  setIsAuthenticated
+}: any) {
+
+  const location = useLocation();
+
+  const showNavbar =
+    isAuthenticated &&
+    location.pathname !== "/" &&
+    location.pathname !== "/login";
+
+  return (
+    <>
+      {showNavbar && (
+        <Navbar
+          openMenu={openMenu}
+          setOpenMenu={setOpenMenu}
+          isAuthenticated={isAuthenticated}
+          setIsAuthenticated={setIsAuthenticated}
+        />
+      )}
+
+      {children}
+    </>
+  );
+}
+
   return (
     <div className='app'>
       
@@ -26,18 +58,28 @@ function App() {
         
         <Toaster position="top-right" />
 
-        <Navbar openMenu={openMenu} setOpenMenu={setOpenMenu} isAuthenticated={isAuthenticated} setIsAuthenticated={setIsAuthenticated} />
+        <Layout
+          openMenu={openMenu}
+          setOpenMenu={setOpenMenu}
+          isAuthenticated={isAuthenticated}
+          setIsAuthenticated={setIsAuthenticated}
+        >
 
         <Routes>
 
-          <Route 
-            path="/" 
-            element={isAuthenticated ? 
-              <Navigate to="/login" /> : 
-              <Login 
-                isAuthenticated={isAuthenticated} 
-                setIsAuthenticated={setIsAuthenticated} />
-              }/>
+          <Route
+            path="/"
+            element={
+              isAuthenticated
+                ? <Navigate to="/products" />
+                : (
+                  <Login
+                    isAuthenticated={isAuthenticated}
+                    setIsAuthenticated={setIsAuthenticated}
+                  />
+                )
+            }
+          />
 
           <Route 
             path="/login" element={
@@ -75,6 +117,7 @@ function App() {
           />
           
         </Routes>
+        </Layout>
       </BrowserRouter>
 
     </div>
