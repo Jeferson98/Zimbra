@@ -15,8 +15,10 @@ async function Connect(SentenceSQL, values) {
             host: 'localhost',
             user: 'root',
             password: '',
-            database: process.env.database,
-            port: process.env.port
+            database: 'Zimbra',
+            port: 3307
+            // database: process.env.database,
+            // port: process.env.port
         });
 
         // Ejecutar la consulta

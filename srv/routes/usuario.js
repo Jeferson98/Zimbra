@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const Connect = require('../Connection/SQLConnect');
+const jwt = require('jsonwebtoken');
 
 // 🔐 Hash de contraseña
 const hashPassword = async (password) => {
@@ -68,6 +69,84 @@ router.post('/usuarios', async (req, res) => {
   }
 });
 
+// Login
+
+router.post('/login', async (req, res) => {
+
+  try {
+
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email y contraseña son obligatorios'
+      });
+    }
+
+    const sql = `
+      SELECT *
+      FROM usuarios
+      WHERE email = ?
+    `;
+
+    const result = await Connect(sql, [email]);
+
+    if (result.length === 0) {
+      return res.status(401).json({
+        success: false,
+        error: 'Usuario no encontrado'
+      });
+    }
+
+    const usuario = result[0];
+
+    const passwordMatch = await bcrypt.compare(
+      password,
+      usuario.password
+    );
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        error: 'Contraseña incorrecta'
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: usuario.id,
+        email: usuario.email
+      },
+      'zimbra_secret',
+      {
+        expiresIn: '8h'
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      token,
+      user: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        email: usuario.email,
+        rol_id: 1
+      }
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: 'Error en login'
+    });
+
+  }
+
+});
 
 // ==============================
 // ✅ OBTENER USUARIOS
