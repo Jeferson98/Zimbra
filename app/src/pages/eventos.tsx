@@ -1,4 +1,5 @@
-import { useState, useMemo, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { useState, useMemo, type CSSProperties, type KeyboardEvent, type MouseEvent, useEffect } from "react";
+import { getHTTP, postHTTP } from "../reuse/httpCall";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -7,6 +8,8 @@ type EventType = "evento" | "recordatorio" | "tarea";
 interface CalendarEvent {
   id: number;
   text: string;
+  title: string;
+  participantes: number[];
   type: EventType;
 }
 
@@ -58,7 +61,11 @@ const inputStyle: CSSProperties = {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function dateKey(y: number, m: number, d: number): string {
-  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const ss = String(now.getSeconds()).padStart(2, "0");
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")} ${hh}:${mm}:${ss}`;
 }
 
 function formatDate(key: string): string {
@@ -76,7 +83,11 @@ export default function CalendarApp() {
   const [events, setEvents] = useState<EventsMap>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [newText, setNewText] = useState<string>("");
+  const [newTitle, setNewTitle] = useState<string>("");
   const [newType, setNewType] = useState<EventType>("evento");
+  const [participantes, setParticipantes] = useState<{ id: number; name: string }[]>([]);
+  const [seleccionados, setSeleccionados] = useState<number[]>([]);
+  const [selectedEvents, setSelectedEvents] = useState<CalendarEvent[]>([]);
 
   const firstDay = useMemo(() => new Date(year, month, 1).getDay(), [year, month]);
   const daysInMonth = useMemo(() => new Date(year, month + 1, 0).getDate(), [year, month]);
@@ -100,6 +111,7 @@ export default function CalendarApp() {
   // Modal
   function openDay(day: number): void {
     setSelected(dateKey(year, month, day));
+    setSelectedEvents(events[dateKey(year, month, day).split(" ")[0]] ?? []);
   }
 
   function closeModal(): void {
@@ -112,12 +124,80 @@ export default function CalendarApp() {
     if (e.target === e.currentTarget) closeModal();
   }
 
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const values = Array.from(e.target.selectedOptions, option => Number(option.value));
+    setSeleccionados(values);
+  };
+
   // Events
   function addEvent(): void {
-    if (!newText.trim() || !selected) return;
-    const ev: CalendarEvent = { id: Date.now(), text: newText.trim(), type: newType };
-    setEvents(prev => ({ ...prev, [selected]: [...(prev[selected] ?? []), ev] }));
+    if (!newText.trim() || !selected || seleccionados.length <= 0 || !newTitle.trim()) return;
+    const ev: CalendarEvent = { id: (new Date(selected)).getTime(), text: newText.trim(), type: newType, title: newTitle.trim(), participantes: seleccionados };
     setNewText("");
+    setEvents(prev => ({ ...prev, [selected.split(" ")[0] ]: [...(prev[selected.split(" ")[0]] ?? []), ev] }));
+    postHTTP("/Eventos/eventos", { 
+      creador_id: 1, 
+      titulo: newTitle, 
+      descripcion: newText, 
+      fecha_inicio: obtenerFechaInicio(ev.id), 
+      fecha_fin: obtenerFechaInicio(ev.id + 3600000), // +1 hora, 
+      participantes: seleccionados }) // Simulate saving to backend
+    .then(() => alert("Evento guardado"))
+    .catch(() => console.error("Error al guardar el evento"))
+    .finally(() => {
+      closeModal();
+      setSeleccionados([]);
+      setNewTitle("");
+      setNewText("");
+    });
+
+    
+  }
+  useEffect(() => {
+    getHTTP("/Eventos/eventos")
+    .then(data => {
+      const Keys = new Set<string>();
+      data.data.forEach((e: any) => {
+        const key = e.fecha_inicio.split("T")[0];
+          Keys.add(key);
+      });
+      Keys.forEach((k) => {
+         const FiltEventos = data.data.filter((e: any) => e.fecha_inicio.split("T")[0] === k);
+         if (FiltEventos.length > 0) {
+          
+          const eventos = FiltEventos.map((e: any) => ({
+            id: e.id,
+            text: e.descripcion,
+            title: e.titulo,
+            participantes: e.participantes ? e.participantes.split(",").map((p: string) => parseInt(p)) : [],
+            type: "evento" as EventType,
+          }));
+          setEvents(prev => ({ ...prev, [k]: eventos }));
+         }
+      });
+        
+    }).catch((error) => {
+      debugger;
+      console.error("Error al cargar eventos")});
+    
+    getHTTP("/Usuarios/usuarios").then(data => {
+      const users = data.usuarios.map((u: any) => ({ id: u.id, name: u.nombre }));
+      setParticipantes(users);
+    }).catch(() => console.error("Error al cargar usuarios"));
+  }, []);
+  function obtenerFechaInicio(Fecha: number) {
+    const ahora = new Date(Fecha);
+
+    // Formato: YYYY-MM-DD HH:MM:SS
+    const año = ahora.getFullYear();
+    const mes = String(ahora.getMonth() + 1).padStart(2, '0');
+    const dia = String(ahora.getDate()).padStart(2, '0');
+    const horas = String(ahora.getHours()).padStart(2, '0');
+    const minutos = String(ahora.getMinutes()).padStart(2, '0');
+    const segundos = String(ahora.getSeconds()).padStart(2, '0');
+
+    const fecha_inicio = `${año}-${mes}-${dia} ${horas}:${minutos}:${segundos}`;
+    return fecha_inicio;
   }
 
   function deleteEvent(key: string, id: number): void {
@@ -134,7 +214,6 @@ export default function CalendarApp() {
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
 
-  const selectedEvents: CalendarEvent[] = selected ? (events[selected] ?? []) : [];
 
   return (
     <div style={{ padding: "1rem 0", fontFamily: "system-ui, sans-serif" }}>
@@ -162,7 +241,7 @@ export default function CalendarApp() {
         {cells.map((day, idx) => {
           if (day === null) return <div key={`empty-${idx}`} />;
 
-          const key = dateKey(year, month, day);
+          const key = dateKey(year, month, day).split(" ")[0]; // Use only date part for key
           const dayEvents = events[key] ?? [];
           const isToday =
             today.getFullYear() === year &&
@@ -270,6 +349,15 @@ export default function CalendarApp() {
               </select>
               <input
                 type="text"
+                placeholder="Titulo"
+                value={newTitle}
+                onChange={e => setNewTitle(e.target.value)}
+                onKeyDown={handleKeyDown}
+                autoFocus
+                style={inputStyle}
+              />
+              <input
+                type="text"
                 placeholder="Descripción..."
                 value={newText}
                 onChange={e => setNewText(e.target.value)}
@@ -277,6 +365,25 @@ export default function CalendarApp() {
                 autoFocus
                 style={inputStyle}
               />
+              <select
+                id="participantes"
+                multiple
+                value={seleccionados.map(String)}
+                onChange={handleChange}
+              >
+                {participantes.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <p>Seleccionados:</p>
+                {seleccionados.map((p) => (
+                  <option key={p} value={p}>
+                    {participantes.find(part => part.id === p)?.name || "Desconocido"
+                    }
+                  </option>
+                ))}
               <button
                 onClick={addEvent}
                 style={{ background: "#534AB7", color: "#EEEDFE", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}

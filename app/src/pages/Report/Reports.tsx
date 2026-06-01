@@ -24,6 +24,13 @@ function Reports({ openMenu, setOpenMenu }: ReportsProps) {
 
         <section className="zm-grid">
           {modules.map((item) => (
+              item.key === "eventos" ?
+              <Link key={item.key} to={`/${item.key}`} className="zm-module-card">
+                <div className="zm-module-card__emoji">{item.emoji}</div>
+                <h3>{item.title}</h3>
+                <p>{item.description}</p>
+              </Link>
+              :
             <Link key={item.key} to={`/module/${item.key}`} className="zm-module-card">
               <div className="zm-module-card__emoji">{item.emoji}</div>
               <h3>{item.title}</h3>

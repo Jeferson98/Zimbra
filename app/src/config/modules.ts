@@ -106,7 +106,7 @@ export const modules: ModuleConfig[] = [
     key: "eventos",
     title: "Eventos",
     endpoint: "eventos",
-    description: "Calendario y reuniones.",
+    description: "Calendario y eventos.",
     emoji: "📅",
     tableFields: ["id", "creador_id", "titulo", "fecha_inicio", "fecha_fin"],
     fields: [

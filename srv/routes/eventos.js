@@ -1,96 +1,98 @@
 const express = require('express');
 const router = express.Router();
 const Connect = require('../Connection/SQLConnect');
+const mysql = require('mysql2/promise');
 
 
 // ==============================
 // ✅ CREAR EVENTO + PARTICIPANTES (CON SAVEPOINT)
 // ==============================
+
 router.post('/eventos', async (req, res) => {
-  const connection = await Connect();
+  let connection;
 
   try {
-    const { creador_id, titulo, descripcion, fecha_inicio, fecha_fin, participantes } = req.body;
+    // Crear conexión directa (sin usar Connect)
+    connection = await mysql.createConnection({
+      host: 'localhost',
+      user: 'root',
+      password: '',
+      database: 'zimbra',
+      port: 3306,
+      multipleStatements: true
+    });
 
-    if (!creador_id || !titulo || !fecha_inicio || !fecha_fin) {
-      return res.status(400).json({
-        success: false,
-        error: 'Faltan datos obligatorios'
-      });
+    const { creador_id, titulo, descripcion, fecha_inicio, fecha_fin, participantes, leads } = req.body;
+
+    if (!creador_id || !titulo || !descripcion || !fecha_inicio || !fecha_fin || !Array.isArray(participantes)) {
+      return res.status(400).json({ success: false, error: 'Faltan datos obligatorios' });
     }
 
-    await connection.query('START TRANSACTION');
+    // Construir SQL completo en una sola cadena
+    let SQL = `
+      START TRANSACTION;
 
-    // 🔎 Validar que el creador exista
-    const [usuario] = await connection.query(
-      `SELECT id FROM usuarios WHERE id = ?`,
-      [creador_id]
-    );
-
-    if (usuario.length === 0) {
-      await connection.query('ROLLBACK');
-      return res.status(400).json({
-        success: false,
-        error: 'El usuario creador no existe'
-      });
-    }
-
-    // 🧩 Crear evento
-    const [eventoResult] = await connection.query(`
       INSERT INTO eventos (creador_id, titulo, descripcion, fecha_inicio, fecha_fin)
-      VALUES (?, ?, ?, ?, ?)
-    `, [creador_id, titulo, descripcion, fecha_inicio, fecha_fin]);
+      VALUES (${connection.escape(creador_id)}, ${connection.escape(titulo)}, ${connection.escape(descripcion)}, ${connection.escape(fecha_inicio)}, ${connection.escape(fecha_fin)});
 
-    const evento_id = eventoResult.insertId;
+      SET @evento_id = LAST_INSERT_ID();
 
-    // 💾 Savepoint antes de participantes
-    await connection.query('SAVEPOINT sp_participantes');
+      INSERT INTO participantes_evento (evento_id, usuario_id, estado) VALUES
+      ${participantes.map(u => `(@evento_id, ${connection.escape(u)}, 'pendiente')`).join(", ")};
 
-    // 👥 Insertar participantes
-    if (participantes && participantes.length > 0) {
-      for (const usuario_id of participantes) {
+      -- Aumentar score al lead creador
+      UPDATE leads SET score = score + 10 WHERE id = ${connection.escape(creador_id)};
 
-        // Validar usuario participante
-        const [userExists] = await connection.query(
-          `SELECT id FROM usuarios WHERE id = ?`,
-          [usuario_id]
-        );
+      INSERT INTO score_historial (lead_id, puntos, motivo) VALUES
+      (${connection.escape(creador_id)}, 10, 'Participación en evento');
 
-        if (userExists.length === 0) {
-          // 🔥 rollback parcial
-          await connection.query('ROLLBACK TO sp_participantes');
+      COMMIT;
+    `;
 
-          return res.status(400).json({
-            success: false,
-            error: `Usuario participante ${usuario_id} no existe`
-          });
-        }
 
-        await connection.query(`
-          INSERT INTO participantes_evento (evento_id, usuario_id, estado)
-          VALUES (?, ?, 'pendiente')
-        `, [evento_id, usuario_id]);
-      }
-    }
-
-    await connection.query('COMMIT');
+    // Ejecutar toda la transacción en una sola llamada
+    const [results] = await connection.query(SQL);
 
     res.status(201).json({
       success: true,
-      message: 'Evento creado correctamente',
-      evento_id
+      message: 'Evento creado correctamente con transacción única'
     });
 
   } catch (error) {
-    await connection.query('ROLLBACK');
+    if (connection) await connection.query('ROLLBACK');
     console.error('Error en transacción evento:', error);
-
-    res.status(500).json({
-      success: false,
-      error: 'Error al crear evento'
-    });
+    res.status(500).json({ success: false, error: 'Error al crear evento' });
   } finally {
-    connection.release();
+    if (connection) await connection.end(); // cerrar conexión
+  }
+});
+
+
+router.get('/eventos', async (req, res) => {
+  let connection;
+  try {
+    // Crear conexión directa
+    connection = await mysql.createConnection({
+      host: 'localhost',
+      user: 'root',
+      password: '',
+      database: 'zimbra',
+      port: 3306
+    });
+
+    // Consultar todos los eventos
+    const [rows] = await connection.query('SELECT * FROM eventos');
+
+    res.json({
+      success: true,
+      data: rows
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo eventos:', error);
+    res.status(500).json({ success: false, error: 'Error al obtener eventos' });
+  } finally {
+    if (connection) await connection.end();
   }
 });
 
