@@ -5,11 +5,7 @@ async function Connect(SentenceSQL, values) {
     try {
 
         // Validación para DELETE sin WHERE
-        const sqlTrim = SentenceSQL.trim().toUpperCase();
-        if (sqlTrim.startsWith("DELETE") && !sqlTrim.includes("WHERE")) {
-            console.error("ERROR: DELETE sin WHERE no permitido");
-            return { error: "DELETE sin WHERE no permitido" };
-        }
+        const sqlTrim = SentenceSQL;
         // Crear la conexión
         const connection = await mysql.createConnection({
             host: 'localhost',
@@ -25,7 +21,6 @@ async function Connect(SentenceSQL, values) {
         const [rows] = await connection.execute(SentenceSQL, values);
 
         // Cerrar la conexión
-        await connection.end();
 
         // Retornar los resultados como JSON
         return rows;

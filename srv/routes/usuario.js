@@ -304,4 +304,77 @@ router.delete('/usuarios/:id', async (req, res) => {
   }
 });
 
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // 🔎 Validación básica
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email y contraseña son requeridos'
+      });
+    }
+
+    // 🔐 Hashear contraseña
+    const hashedPassword = crypto
+      .createHash('sha256')
+      .update(password)
+      .digest('hex');
+
+    // 🔎 Buscar usuario
+    const result = await Connect(`
+      SELECT id, nombre, email, password, estado
+      FROM usuarios
+      WHERE email = ?
+      LIMIT 1
+    `, [email]);
+
+    const usuario = result[0];
+
+    // ❌ Usuario no existe
+    if (!usuario) {
+      return res.status(401).json({
+        success: false,
+        error: 'Credenciales inválidas'
+      });
+    }
+
+    // ❌ Usuario inactivo
+    if (usuario.estado === 0) {
+      return res.status(403).json({
+        success: false,
+        error: 'Usuario desactivado'
+      });
+    }
+
+    // ❌ Contraseña incorrecta
+    if (usuario.password !== hashedPassword) {
+      return res.status(401).json({
+        success: false,
+        error: 'Credenciales inválidas'
+      });
+    }
+
+    // ✅ Login exitoso
+    res.status(200).json({
+      success: true,
+      message: 'Login exitoso',
+      usuario: {
+        id: usuario.id,
+        nombre: usuario.nombre,
+        email: usuario.email
+      }
+    });
+
+  } catch (error) {
+    console.error('Error en login:', error);
+
+    res.status(500).json({
+      success: false,
+      error: 'Error en el servidor'
+    });
+  }
+});
+
 module.exports = router;

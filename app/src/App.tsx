@@ -9,6 +9,7 @@ import Login from './pages/Login/login';
 import ModulePage from './pages/ModulePage';
 import Reports from './pages/Report/Reports';
 import './styles/zimbra.css';
+import CalendarApp from './pages/eventos';
 
 function App() {
   const [openMenu, setOpenMenu] = useState(false);
@@ -93,9 +94,14 @@ function App() {
           <Route 
             path="/Report" 
             element={
-              <ProtectedRoute>
                 <Reports  openMenu={openMenu} setOpenMenu={setOpenMenu}/>
-              </ProtectedRoute>
+            } 
+          />
+
+          <Route 
+            path="/eventos" 
+            element={
+                <CalendarApp />
             } 
           />
 
@@ -111,9 +117,7 @@ function App() {
           <Route
             path="/module/:moduleKey"
             element={
-              <ProtectedRoute>
                 <ModulePage />
-              </ProtectedRoute>
             }
           />
 
