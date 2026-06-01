@@ -47,3 +47,10 @@ export type AuthResponse = {
     token: string;
     user: AuthUser;
 };
+export interface Archivo {
+    id: number;
+    usuario_id: number;
+    nombre: string;
+    ruta: string;
+    fecha_subida: string;
+}

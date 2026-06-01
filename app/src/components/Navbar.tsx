@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import iconReports from "../assets/ReportIcon.png"
+import iconReports from "../assets/ReportIcon.png";
 
 type NavbarProps = {
   openMenu: boolean;
@@ -33,18 +33,40 @@ function Navbar({ openMenu, setOpenMenu, isAuthenticated, setIsAuthenticated }: 
             </div>
             
         <div className={`sidebar ${openMenu ? "open" : ""}`}>
-            {/*localStorage.getItem("role") === "1"*/true && (
-                <Link to="/Report"
-                    onClick={() => setOpenMenu(false)}>
-                        <div className="menuRow">
-                            <img className="menuIcon" src = {iconReports}/>
-                            {openMenu ?
-                                <h4 style={{ margin: "1px" }}>Report</h4>
-                            :
-                            null}
-                        </div>
-                </Link>
-            )}
+
+            <Link
+                to="/Report"
+                onClick={() => setOpenMenu(false)}
+            >
+                <div className="menuRow">
+                    <img
+                        className="menuIcon"
+                        src={iconReports}
+                    />
+
+                    {openMenu && (
+                        <h4 style={{ margin: "1px" }}>
+                            Report
+                        </h4>
+                    )}
+                </div>
+            </Link>
+
+            <Link
+                to="/module/archivos"
+                onClick={() => setOpenMenu(false)}
+            >
+                <div className="menuRow">
+                    <span className="menuIcon">📁</span>
+
+                    {openMenu && (
+                        <h4 style={{ margin: "1px" }}>
+                            Archivos
+                        </h4>
+                    )}
+                </div>
+            </Link>
+
         </div>
         </div>)
     }

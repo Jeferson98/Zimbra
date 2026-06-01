@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import './App.css';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
+import Archivos from "./pages/Archivos/Archivos";
 import Login from './pages/Login/login';
 import ModulePage from './pages/ModulePage';
 import Reports from './pages/Report/Reports';
@@ -112,6 +113,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <ModulePage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/archivos"
+            element={
+              <ProtectedRoute>
+                <Archivos />
               </ProtectedRoute>
             }
           />

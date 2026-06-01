@@ -2,11 +2,97 @@ const express = require('express');
 const router = express.Router();
 const Connect = require('../Connection/SQLConnect');
 
+// CREAR ARCHIVO
+router.post('/', async (req, res) => {
+  try {
+
+    const {
+      usuario_id,
+      nombre,
+      ruta
+    } = req.body;
+
+    if (!usuario_id || !nombre) {
+      return res.status(400).json({
+        success: false,
+        error: 'usuario_id y nombre son obligatorios'
+      });
+    }
+
+    const sql = `
+      INSERT INTO archivos
+      (
+        usuario_id,
+        nombre,
+        ruta
+      )
+      VALUES (?, ?, ?)
+    `;
+
+    const result = await Connect(sql, [
+      usuario_id,
+      nombre,
+      ruta || ''
+    ]);
+
+    res.status(201).json({
+      success: true,
+      message: 'Archivo registrado',
+      id: result.insertId
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: 'Error al crear archivo'
+    });
+
+  }
+});
+
+// LISTAR ARCHIVOS
+router.get('/', async (req, res) => {
+  try {
+
+    const sql = `
+      SELECT
+        a.id,
+        a.nombre,
+        a.ruta,
+        a.fecha_subida,
+        u.nombre AS usuario
+      FROM archivos a
+      INNER JOIN usuarios u
+        ON u.id = a.usuario_id
+      ORDER BY a.fecha_subida DESC
+    `;
+
+    const result = await Connect(sql);
+
+    res.status(200).json({
+      success: true,
+      archivos: result
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      error: 'Error al obtener archivos'
+    });
+
+  }
+});
 
 // ==============================
 // ✅ SUBIR ARCHIVO
 // ==============================
-router.post('/archivos', async (req, res) => {
+router.post('/', async (req, res) => {
   const connection = await Connect();
 
   try {
@@ -66,7 +152,7 @@ router.post('/archivos', async (req, res) => {
 // ==============================
 // ✅ OBTENER ARCHIVOS
 // ==============================
-router.get('/archivos', async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const result = await Connect(`
       SELECT a.*, u.nombre AS usuario
@@ -93,7 +179,7 @@ router.get('/archivos', async (req, res) => {
 // ==============================
 // ✅ OBTENER ARCHIVOS POR USUARIO
 // ==============================
-router.get('/archivos/usuario/:id', async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -117,54 +203,33 @@ router.get('/archivos/usuario/:id', async (req, res) => {
   }
 });
 
-
-// ==============================
-// ✅ ELIMINAR ARCHIVO
-// ==============================
-router.delete('/archivos/:id', async (req, res) => {
-  const connection = await Connect();
-
+// ELIMINAR
+router.delete('/:id', async (req, res) => {
   try {
+
     const { id } = req.params;
 
-    await connection.query('START TRANSACTION');
+    const sql = `
+      DELETE FROM archivos
+      WHERE id = ?
+    `;
 
-    // 🔎 Validar existencia
-    const [archivo] = await connection.query(
-      `SELECT id FROM archivos WHERE id = ?`,
-      [id]
-    );
-
-    if (archivo.length === 0) {
-      await connection.query('ROLLBACK');
-      return res.status(404).json({
-        success: false,
-        error: 'Archivo no existe'
-      });
-    }
-
-    await connection.query(
-      `DELETE FROM archivos WHERE id = ?`,
-      [id]
-    );
-
-    await connection.query('COMMIT');
+    await Connect(sql, [id]);
 
     res.status(200).json({
       success: true,
-      message: 'Archivo eliminado correctamente'
+      message: 'Archivo eliminado'
     });
 
   } catch (error) {
-    await connection.query('ROLLBACK');
-    console.error('Error al eliminar archivo:', error);
+
+    console.error(error);
 
     res.status(500).json({
       success: false,
       error: 'Error al eliminar archivo'
     });
-  } finally {
-    connection.release();
+
   }
 });
 

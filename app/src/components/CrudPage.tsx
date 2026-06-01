@@ -29,8 +29,20 @@ export default function CrudPage({
     tableFields,
     searchFields,
 }: CrudPageProps) {
+    const [selectedFile, setSelectedFile] =
+        useState<File | null>(null);
 
-const formFields = useMemo(() => fields.filter((f) => !f.auto), [fields]);
+    const formFields = useMemo(() => {
+        return fields.filter((f) => !f.auto);
+    }, [fields]);
+
+    const visibleFormFields = useMemo(() => {
+        if (endpoint !== "archivos") return formFields;
+
+        return formFields.filter(
+            (f) => f.name !== "nombre" && f.name !== "ruta"
+        );
+    }, [formFields, endpoint]);
 
 const buildEmptyForm = () => {
     const base: Record<string, any> = {};
@@ -61,7 +73,18 @@ const loadData = async () => {
     setLoading(true);
     try {
         const { data } = await api.get(`/${endpoint}`);
-        setRows(Array.isArray(data) ? data : data?.data ?? []);
+
+        setRows(
+            Array.isArray(data)
+            ? data
+            : data.archivos ||
+            data.usuarios ||
+            data.leads ||
+            data.eventos ||
+            data.notas ||
+            data.data ||
+            []
+        );
     } catch (error) {
         console.error(error);
         toast.error(`No se pudo cargar ${title.toLowerCase()}`);
@@ -87,6 +110,7 @@ const openCreate = () => {
     setEditingId(null);
     setForm(buildEmptyForm());
     setOpenModal(true);
+    setSelectedFile(null);
 };
 
 const openEdit = (row: Record<string, any>) => {
@@ -146,17 +170,23 @@ const handleSubmit = async (e: React.FormEvent) => {
             toast.success("Registro actualizado");
         } else {
             await api.post(`/${endpoint}`, payload);
-            toast.success("Registro creado");
+            toast.success(
+                endpoint === "archivos"
+                    ? "Archivo registrado correctamente"
+                    : "Registro creado"
+            );
         }
 
         setOpenModal(false);
         setEditingId(null);
+        setSelectedFile(null);
         setForm(buildEmptyForm());
         await loadData();
-        } catch (error: any) {
-            console.error(error);
-            toast.error(error?.message || "Ocurrió un error al guardar");
-        } finally {
+
+    } catch (error: any) {
+        console.error(error);
+        toast.error(error?.message || "Ocurrió un error al guardar");
+    } finally {
         setSaving(false);
     }
 };
@@ -278,14 +308,18 @@ return (
             <div className="zm-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="zm-modal__header">
                     <h2>{editingId ? "Editar" : "Nuevo"} {title}</h2>
-                    <button className="zm-btn zm-btn--ghost" onClick={() => setOpenModal(false)}>
-                        Cerrar
+                    <button
+                        type="button"
+                        className="zm-modal-close"
+                        onClick={() => setOpenModal(false)}
+                    >
+                        ✕
                     </button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="zm-form">
                     <div className="zm-form-grid">
-                    {formFields.map((field) => {
+                    {visibleFormFields.map((field) => {
                         const value = form[field.name];
 
                         return (
@@ -341,6 +375,51 @@ return (
                     </div>
 
                     <div className="zm-modal__footer">
+                        {endpoint === "archivos" && (
+                            <div className="upload-container">
+                                <label className="upload-title">📂 Seleccionar archivo</label>
+
+                                <input
+                                    className="upload-input"
+                                    type="file"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+
+                                        if (file) {
+                                            setSelectedFile(file);
+
+                                            setForm((prev) => ({
+                                                ...prev,
+                                                nombre: file.name,
+                                                ruta: `/uploads/${file.name}`,
+                                            }));
+                                        }
+                                    }}
+                                />
+
+                                {selectedFile && (
+                                    <div className="file-preview">
+                                        <div className="file-icon">
+                                            {selectedFile.type.includes("pdf") && "📕"}
+                                            {selectedFile.type.includes("image") && "🖼️"}
+                                            {selectedFile.type.includes("word") && "📄"}
+                                            {selectedFile.type.includes("excel") && "📊"}
+                                            {!selectedFile.type.includes("pdf") &&
+                                                !selectedFile.type.includes("image") &&
+                                                !selectedFile.type.includes("word") &&
+                                                !selectedFile.type.includes("excel") &&
+                                            "📁"}
+                                        </div>
+
+                                        <div className="file-info">
+                                            <h4>{selectedFile.name}</h4>
+                                            <p>{(selectedFile.size / 1024).toFixed(2)} KB</p>
+                                            <span>{selectedFile.type || "Archivo"}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <button type="button" className="zm-btn zm-btn--ghost" onClick={() => setOpenModal(false)}>
                             Cancelar
                         </button>
